@@ -14,6 +14,7 @@ import android.graphics.Rect
 import android.hardware.*
 import android.hardware.Camera.*
 import android.media.AudioManager
+import android.media.MediaActionSound
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.*
@@ -79,7 +80,7 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
     }
     private var mVisible = false
     private val mHideRunnable = Runnable { hide() }
-    private var _shootMP: MediaPlayer? = null
+    private var mediaActionSound: MediaActionSound? = null
     private var safeToTakePicture = false
     private lateinit var scanDocButton: Button
     private lateinit var mImageThread: HandlerThread
@@ -195,16 +196,18 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
     }
 
     fun setFlash(stateFlash: Boolean): Boolean {
-        val pm = packageManager
         val camera = mCamera ?: return false
 
-        if (pm.hasSystemFeature(PackageManager.FEATURE_CAMERA_FLASH)) {
-            val par = camera.parameters
-            par.flashMode = if (stateFlash) Camera.Parameters.FLASH_MODE_TORCH else Camera.Parameters.FLASH_MODE_OFF
-            camera.parameters = par
+        val flashModes = camera.parameters.supportedFlashModes
+        if (flashModes != null && flashModes.contains(Camera.Parameters.FLASH_MODE_TORCH)) {
+            val parameters = camera.parameters
+            parameters.flashMode = if (stateFlash) Camera.Parameters.FLASH_MODE_TORCH else Camera.Parameters.FLASH_MODE_OFF
+            camera.parameters = parameters
             Log.d(TAG, "flash: " + if (stateFlash) "on" else "off")
             return stateFlash
         }
+
+        Log.d(TAG, "flash not available")
         return false
     }
 
@@ -370,6 +373,9 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
 
         // Don't receive any more updates from either sensor.
         sensorManager.unregisterListener(this)
+
+        mediaActionSound?.release()
+        mediaActionSound = null
     }
 
     val resolutionList: List<Camera.Size>
@@ -447,30 +453,37 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
 
     fun setFocusParameters() {
         val camera = mCamera ?: return
-        val param: Camera.Parameters = camera.parameters
-        val pm = packageManager
-        if (pm.hasSystemFeature(PackageManager.FEATURE_CAMERA_AUTOFOCUS)) {
-            try {
-                camera.setAutoFocusMoveCallback { start, _ ->
-                    mFocused = !start
-                    Log.d(TAG, "focusMoving: $mFocused")
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "failed setting AutoFocusMoveCallback")
-            }
-            param.focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE
+
+        val parameters = camera.parameters
+        val supportedFocusModes = camera.parameters.getSupportedFocusModes()
+        if (supportedFocusModes != null && supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+            parameters.focusMode = Camera.Parameters.FOCUS_MODE_AUTO
+        } else if (supportedFocusModes != null && supportedFocusModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+            // fallback
+            parameters.focusMode = Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE
             val targetFocusRect = Rect(-500, -500, 500, 500)
             val focusList: MutableList<Camera.Area> = ArrayList()
             val focusArea = Camera.Area(targetFocusRect, 1000)
             focusList.add(focusArea)
-            param.focusAreas = focusList
-            param.meteringAreas = focusList
-            camera.parameters = param
-            Log.d(TAG, "enabling autofocus")
+            parameters.focusAreas = focusList
+            parameters.meteringAreas = focusList
         } else {
             mFocused = true
             Log.d(TAG, "autofocus not available")
+            return
         }
+
+        try {
+            camera.setAutoFocusMoveCallback { start, _ ->
+                mFocused = !start
+                Log.d(TAG, "focusMoving: $mFocused")
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "failed setting AutoFocusMoveCallback")
+        }
+
+        Log.d(TAG, "enabling autofocus")
+        camera.parameters = parameters
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -799,15 +812,16 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
     }
 
     private fun shootSound() {
-        val meng = getSystemService(AUDIO_SERVICE) as AudioManager
-        val volume = meng.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
+        val am = getSystemService(AUDIO_SERVICE) as AudioManager
+        val volume = am.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
         if (volume != 0) {
-            if (_shootMP == null) {
-                _shootMP = MediaPlayer.create(this, Uri.parse("file:///system/media/audio/ui/camera_click.ogg"))
+            if (mediaActionSound == null) {
+                mediaActionSound = MediaActionSound()
+                // Optional: Preload the sound for faster playback the first time.
+                // This is useful if you call shootSound frequently.
+                // mediaActionSound?.load(MediaActionSound.SHUTTER_CLICK)
             }
-            if (_shootMP != null) {
-                _shootMP!!.start()
-            }
+            mediaActionSound?.play(MediaActionSound.SHUTTER_CLICK)
         }
     }
 
