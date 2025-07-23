@@ -32,6 +32,7 @@ import androidx.exifinterface.media.ExifInterface
 import com.github.fafaldo.fabtoolbar.widget.FABToolbarLayout
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationView
+import com.permissionx.guolindev.PermissionX
 import com.todobom.opennotescanner.helpers.*
 import com.todobom.opennotescanner.helpers.ScanTopicDialogFragment.SetTopicDialogListener
 import com.todobom.opennotescanner.views.HUDCanvasView
@@ -207,24 +208,31 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
         return false
     }
 
-    private fun checkResumePermissions() {
-        if (ContextCompat.checkSelfPermission(this,
-                        Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA),
-                    RESUME_PERMISSIONS_REQUEST_CAMERA)
+    private fun grantPermissions() {
+        val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // new version will use MediaStore or SAF, does not need permissions
+            listOf(Manifest.permission.CAMERA)
         } else {
-            enableCameraView()
+            // TODO: can we move this to use SAF / MediaStore too ?
+            listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.CAMERA)
         }
-    }
 
-    private fun checkCreatePermissions() {
-        if (ContextCompat.checkSelfPermission(this,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
-                    MY_PERMISSIONS_REQUEST_WRITE)
-        }
+        PermissionX.init(this)
+            .permissions(permissionsToRequest)
+            .onExplainRequestReason { scope, deniedList ->
+                scope.showRequestReasonDialog(deniedList, getString(R.string.permission_explain_request_reason_all), getString(R.string.ok))
+            }
+            .onForwardToSettings { scope, deniedList ->
+                scope.showForwardToSettingsDialog(deniedList, getString(R.string.permission_forward_reason_all), getString(R.string.ok))
+            }
+            .explainReasonBeforeRequest()
+            .request { allGranted, _, deniedList ->
+                if (allGranted) {
+                    enableCameraView()
+                } else {
+                    // PermissionX will always prompt or redirect to settings if permissions are not granted.
+                }
+            }
     }
 
     fun turnCameraOn() {
@@ -240,29 +248,6 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
     fun enableCameraView() {
         if (mSurfaceView == null) {
             turnCameraOn()
-        }
-    }
-
-    @SuppressLint("MissingSuperCall")
-    override fun onRequestPermissionsResult(requestCode: Int,
-                                            permissions: Array<String>, grantResults: IntArray) {
-        when (requestCode) {
-            CREATE_PERMISSIONS_REQUEST_CAMERA -> {
-
-                // If request is cancelled, the result arrays are empty.
-                if (grantResults.size > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    turnCameraOn()
-                }
-            }
-            RESUME_PERMISSIONS_REQUEST_CAMERA -> {
-
-                // If request is cancelled, the result arrays are empty.
-                if (grantResults.size > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    enableCameraView()
-                }
-            }
         }
     }
 
@@ -313,22 +298,10 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
         mHideHandler.postDelayed(mHideRunnable, delayMillis.toLong())
     }
 
-    private val mLoaderCallback: BaseLoaderCallback = object : BaseLoaderCallback(this) {
-        override fun onManagerConnected(status: Int) {
-            when (status) {
-                SUCCESS -> {
-                    checkResumePermissions()
-                }
-                else -> {
-                    Log.d(TAG, "opencvstatus: $status")
-                    super.onManagerConnected(status)
-                }
-            }
-        }
-    }
-
     public override fun onResume() {
         super.onResume()
+
+        grantPermissions()
 
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.also { accelerometer ->
             sensorManager.registerListener(
@@ -357,7 +330,6 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
         for (build in Build.SUPPORTED_ABIS) {
             Log.d(TAG, "myBuild $build")
         }
-        checkCreatePermissions()
         CustomOpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_1_0, this, mLoaderCallback)
         //TODO these should go in the variable's creation
         mImageThread = HandlerThread("Worker Thread")

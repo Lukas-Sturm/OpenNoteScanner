@@ -55,6 +55,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.1.20")
 
+    implementation("com.guolindev.permissionx:permissionx:1.8.1")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     testImplementation("junit:junit:4.13.2")
     implementation("androidx.appcompat:appcompat:1.7.1")
