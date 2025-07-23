@@ -38,11 +38,11 @@ import com.todobom.opennotescanner.helpers.ScanTopicDialogFragment.SetTopicDialo
 import com.todobom.opennotescanner.views.HUDCanvasView
 import org.matomo.sdk.Tracker
 import org.matomo.sdk.extra.TrackHelper
-import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.OpenCVLoader
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfByte
 import org.opencv.core.Size
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
@@ -330,7 +330,15 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
         for (build in Build.SUPPORTED_ABIS) {
             Log.d(TAG, "myBuild $build")
         }
-        CustomOpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_1_0, this, mLoaderCallback)
+
+        if (OpenCVLoader.initLocal()) {
+            Log.i(TAG, "OpenCV loaded successfully");
+        } else {
+            Log.e(TAG, "OpenCV initialization failed!");
+            (Toast.makeText(this, "OpenCV initialization failed!", Toast.LENGTH_LONG)).show();
+            return;
+        }
+
         //TODO these should go in the variable's creation
         mImageThread = HandlerThread("Worker Thread")
         mImageThread.start()
@@ -474,8 +482,7 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
         }
         mCamera = camera
 
-        val param: Camera.Parameters
-        param = camera.getParameters()
+        val param  = camera.getParameters()
         val pSize = maxPreviewResolution
         param.setPreviewSize(pSize!!.width, pSize.height)
         val previewRatio = pSize.width.toFloat() / pSize.height
@@ -511,7 +518,7 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
             this.mDocumentAspectRatio = docPageFormat!!.toFloat().toDouble()
         }
 
-        var hotArea = Utils.getHotArea(pSize.width, pSize.height, this)
+        val hotArea = Utils.getHotArea(pSize.width, pSize.height, this)
 
         hotAreaSpaceWidth = hotArea!![1]
         hotAreaSpaceHeight = hotArea!![0]
@@ -630,19 +637,41 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
     override fun onPictureTaken(data: ByteArray, camera: Camera) {
         shootSound()
         setFocusParameters()
-        val pictureSize = camera.parameters.pictureSize
-        Log.d(TAG, "onPictureTaken - received image " + pictureSize.width + "x" + pictureSize.height)
-        mat = Mat(Size(pictureSize.width.toDouble(), pictureSize.height.toDouble()), CvType.CV_8U).also {
-            it.put(0, 0, data)
+        Log.d(TAG, "onPictureTaken - received ${data.size} bytes")
+
+        val encodedMat = MatOfByte(*data) // or MatOfByte(data)
+        val decodedMat: Mat
+        try {
+            decodedMat = Imgcodecs.imdecode(encodedMat, Imgcodecs.IMREAD_UNCHANGED)
+            if (decodedMat.empty()) {
+                Log.e(TAG, "Failed to decode image from data byte array.")
+                refreshCamera() // Or some other error recovery
+                safeToTakePicture = true
+                return
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception while decoding image: ${e.message}")
+            refreshCamera()
+            safeToTakePicture = true
+            return
+        } finally {
+            encodedMat.release() // Release the temporary MatOfByte
         }
+
+        Log.d(TAG, "Decoded image: ${decodedMat.width()}x${decodedMat.height()}, type: ${CvType.typeToString(decodedMat.type())}")
+
+        // Store the decoded Mat to be used by issueProcessingOfTakenPicture
+        mat = decodedMat
 
         if (mSharedPref.getBoolean("custom_scan_topic", false)) {
             val fm = supportFragmentManager
             val scanTopicDialogFragment = ScanTopicDialogFragment()
             scanTopicDialogFragment.show(fm, getString(R.string.scan_topic_dialog_title))
-            return
+            // Note: if custom_scan_topic is true, issueProcessingOfTakenPicture
+            // will be called later by onFinishTopicDialog. 'this.mat' must hold the decoded image.
+        } else {
+            issueProcessingOfTakenPicture()
         }
-        issueProcessingOfTakenPicture()
     }
 
     override fun onFinishTopicDialog(inputText: String?) {
