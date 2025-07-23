@@ -34,10 +34,9 @@ class Utils(
                     Environment.getExternalStorageDirectory()
                             .toString() + File.separator + mSharedPref.getString("storage_folder", "OpenNoteScanner"))
 
-            // check for directory
-            if (directory.isDirectory) {
-                // getting list of file paths
-                val listFiles = directory.listFiles()
+            // getting list of file paths
+            val listFiles = directory.listFiles()
+            if (listFiles != null) {
                 Arrays.sort(listFiles) { f1, f2 -> f2.name.compareTo(f1.name) }
 
                 // Check for count
@@ -68,7 +67,7 @@ class Utils(
     private fun isSupportedFile(filePath: String): Boolean {
         val ext = filePath.substring(filePath.lastIndexOf(".") + 1,
                 filePath.length)
-        return AppConstant.FILE_EXTN.contains(ext.toLowerCase(Locale.getDefault()))
+        return AppConstant.FILE_EXTN.contains(ext.lowercase(Locale.getDefault()))
     }// Older device
 
     /*
@@ -133,7 +132,7 @@ class Utils(
             }
 
         @JvmStatic
-        fun isMatch(s: String?, pattern: String?): Boolean {
+        fun isMatch(s: String, pattern: String): Boolean {
             return try {
                 val patt = Pattern.compile(pattern)
                 val matcher = patt.matcher(s)
@@ -195,16 +194,12 @@ class Utils(
 
         @JvmStatic
         fun isPackageInstalled(context: Context, packagename: String): Boolean {
-            val pm = context.packageManager
-            var app_installed = false
-            app_installed = try {
-                val info = pm.getPackageInfo(packagename, PackageManager.GET_ACTIVITIES)
-                val label = info.applicationInfo.loadLabel(pm) as String
-                label != null
-            } catch (e: PackageManager.NameNotFoundException) {
+            return try {
+                context.packageManager.getPackageInfo(packagename, PackageManager.GET_ACTIVITIES)
+                true
+            } catch (_: PackageManager.NameNotFoundException) {
                 false
             }
-            return app_installed
         }
 
 
