@@ -93,7 +93,7 @@ public class ImageProcessor extends Handler {
 
             String command = obj.getCommand();
 
-            Log.d(TAG, "Message Received: " + command + " - " + obj.getObj().toString() );
+            Log.v(TAG, "Message Received: " + command + " - " + obj.getObj().toString() );
 
             if ( command.equals("previewFrame")) {
                 processPreviewFrame((PreviewFrame) obj.getObj());
@@ -245,7 +245,7 @@ public class ImageProcessor extends Handler {
 
             drawDocumentBox(mPreviewPoints, mPreviewSize);
 
-            Log.d(TAG, quad.getPoints()[0].toString() + " , " + quad.getPoints()[1].toString() + " , " + quad.getPoints()[2].toString() + " , " + quad.getPoints()[3].toString());
+//            Log.d(TAG, quad.getPoints()[0].toString() + " , " + quad.getPoints()[1].toString() + " , " + quad.getPoints()[2].toString() + " , " + quad.getPoints()[3].toString());
 
             return true;
 

@@ -1,18 +1,20 @@
 package com.todobom.opennotescanner.helpers
 
-import android.content.ContentValues
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Point
+import android.net.Uri
 import android.os.Environment
 import android.preference.PreferenceManager
 import android.provider.MediaStore
+import android.util.Log
 import android.view.WindowManager
 import com.todobom.opennotescanner.OpenNoteScannerActivity
 import java.io.File
+import java.io.InputStream
 import java.util.*
 import java.util.regex.Pattern
 import javax.microedition.khronos.egl.EGL10
@@ -91,6 +93,9 @@ class Utils(
         }
 
     companion object {
+
+        private const val TAG = "OpenNoteScanner-Utils"
+
         @JvmStatic
         val maxTextureSize: Int
             get() {
@@ -142,20 +147,34 @@ class Utils(
             }
         }
 
-        fun decodeSampledBitmapFromUri(path: String?, reqWidth: Int, reqHeight: Int): Bitmap? {
-            var bm: Bitmap? = null
-            // First decode with inJustDecodeBounds=true to check dimensions
-            val options = BitmapFactory.Options()
-            options.inJustDecodeBounds = true
-            BitmapFactory.decodeFile(path, options)
+        fun decodeSampledBitmapFromUri(context: Context, uri: Uri, reqWidth: Int, reqHeight: Int): Bitmap? {
+            var inputStream: InputStream? = null
+            try {
+                // First decode with inJustDecodeBounds=true to check dimensions
+                val options = BitmapFactory.Options()
+                options.inJustDecodeBounds = true
+                inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream == null) {
+                    Log.e(TAG, "decodeSampledBitmapFromUri: Could not open InputStream for URI: $uri")
+                    return null
+                }
+                BitmapFactory.decodeStream(inputStream, null, options)
+                inputStream.close()
 
-            // Calculate inSampleSize
-            options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
+                // calculate downsample factor
+                options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
 
-            // Decode bitmap with inSampleSize set
-            options.inJustDecodeBounds = false
-            bm = BitmapFactory.decodeFile(path, options)
-            return bm
+                options.inJustDecodeBounds = false
+                inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream == null) {
+                    Log.e(TAG, "decodeSampledBitmapFromUri: Could not reopen InputStream for URI: $uri")
+                    return null
+                }
+                val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
+                return bitmap
+            } finally {
+                inputStream?.close()
+            }
         }
 
         fun calculateInSampleSize(
@@ -173,14 +192,6 @@ class Utils(
                 }
             }
             return inSampleSize
-        }
-
-        fun addImageToGallery(filePath: String?, context: Context) {
-            val values = ContentValues()
-            values.put(MediaStore.Images.Media.DATE_TAKEN, System.currentTimeMillis())
-            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-            values.put(MediaStore.MediaColumns.DATA, filePath)
-            context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
         }
 
         @JvmStatic
