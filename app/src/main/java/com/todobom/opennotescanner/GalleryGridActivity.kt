@@ -263,14 +263,24 @@ class GalleryGridActivity : AppCompatActivity(), ClickListener, DragSelectRecycl
     }
 
     fun pdfExport() {
-        val pdfFilePath = mergeImagesToPdf(applicationContext, myThumbAdapter!!.selectedFiles)
-        if (pdfFilePath != null) {
+        var pdfFileUri = mergeImagesToPdf(applicationContext, myThumbAdapter!!.selectedFiles)
+        if (pdfFileUri != null) {
+            if (pdfFileUri.scheme == "file") {
+                // if pdf was written pre Android Q we need a FileProvider to allow access
+                // if MediaStore was used, the Uri can be shared and permissions are set up already
+                // not a fan of this, maybe should revert usage of MediaStore
+                pdfFileUri = FileProvider.getUriForFile(applicationContext, "$packageName.fileprovider", File(pdfFileUri.path!!))
+            } else if (pdfFileUri.scheme != "content") {
+                // unrecognized type
+                Log.e(TAG, "Unsupported URI scheme in PDF Export: ${pdfFileUri.scheme}")
+                return
+            }
+
             try {
-                val file = File(pdfFilePath)
-                val i = Intent(Intent.ACTION_VIEW, FileProvider.getUriForFile(applicationContext,
-                        "$packageName.fileprovider", file))
-                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                startActivity(i)
+                startActivity(Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(pdfFileUri, "application/pdf")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
             } catch (e: ActivityNotFoundException) {
                 Toast.makeText(applicationContext, "Cant Find Your File", Toast.LENGTH_LONG).show()
             }

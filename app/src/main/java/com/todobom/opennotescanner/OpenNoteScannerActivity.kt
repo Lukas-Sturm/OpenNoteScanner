@@ -733,6 +733,7 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
         if (scanTopic != null) {
             displayName = "$scanTopic-$displayName"
         }
+        val customFolderName = mSharedPref.getString("storage_folder", "OpenNoteScanner") ?: "OpenNoteScanner"
 
         var savedFileUri: Uri? = null
         var preQFilePath: String? = null // pre android Q file path
@@ -752,7 +753,6 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     contentValues.put(MediaStore.MediaColumns.IS_PENDING, 1) // Mark as pending until written
-                    val customFolderName = mSharedPref.getString("storage_folder", "OpenNoteScanner") ?: "OpenNoteScanner"
                     if (customFolderName.isNotBlank()) {
                         contentValues.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + File.separator + customFolderName)
                     } else {
@@ -761,7 +761,6 @@ class OpenNoteScannerActivity : AppCompatActivity(), NavigationView.OnNavigation
                     val imageCollection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                     savedFileUri = contentResolver.insert(imageCollection, contentValues)
                 } else {
-                    val customFolderName = mSharedPref.getString("storage_folder", "OpenNoteScanner") ?: "OpenNoteScanner"
                     val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
                     val targetDir = if (customFolderName.isNotBlank()) {
                         File(picturesDir, customFolderName)

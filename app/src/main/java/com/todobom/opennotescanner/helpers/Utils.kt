@@ -1,5 +1,6 @@
 package com.todobom.opennotescanner.helpers
 
+import android.content.ContentUris
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -7,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Point
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.preference.PreferenceManager
 import android.provider.MediaStore
@@ -26,70 +28,86 @@ class Utils(
 ) {
     private val mSharedPref: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(_context)
 
-    /*
-       * Reading file paths from SDCard
-       */
     val filePaths: ArrayList<String>
         get() {
-            val filePaths = ArrayList<String>()
-            val directory = File(
-                    Environment.getExternalStorageDirectory()
-                            .toString() + File.separator + mSharedPref.getString("storage_folder", "OpenNoteScanner"))
+            val imagePaths = ArrayList<String>()
+            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
 
-            // getting list of file paths
-            val listFiles = directory.listFiles()
-            if (listFiles != null) {
-                Arrays.sort(listFiles) { f1, f2 -> f2.name.compareTo(f1.name) }
+            val projection = arrayOf(
+                MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.DATA // For pre-Q compatibility and direct paths, FIXME: switch to only URI
+            )
 
-                // Check for count
-                if (listFiles.size > 0) {
+            val appFolderName = mSharedPref.getString("storage_folder", "OpenNoteScanner")
+            val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
+            } else {
+                "${MediaStore.Images.Media.DATA} LIKE ?"
+            }
+            val selectionArgs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // post-Q, partial path matching
+                arrayOf("%${Environment.DIRECTORY_PICTURES}/$appFolderName/%")
+            } else {
+                // pre-Q, direct path matching
+                val legacyPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).absolutePath +
+                        File.separator + appFolderName
+                arrayOf("$legacyPath/%")
+            }
 
-                    // loop through all files
-                    for (i in listFiles.indices) {
+            // Sort order
+            val sortOrder = "${MediaStore.Images.Media.DATE_MODIFIED} DESC" // Or DATE_ADDED, DISPLAY_NAME ASC
 
-                        // get file path
-                        val filePath = listFiles[i].absolutePath
+            _context.contentResolver.query(
+                collection,
+                projection,
+                selection,
+                selectionArgs,
+                sortOrder
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA) // For path
 
-                        // check for supported file extension
-                        if (isSupportedFile(filePath)) {
-                            // Add image path to array list
-                            filePaths.add(filePath)
-                        }
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idColumn)
+                    val contentUri: Uri = ContentUris.withAppendedId(
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                        id
+                    )
+
+                    // For SDK < Q, MediaStore.Images.Media.DATA is usually reliable.
+                    // For SDK >= Q, it's better to rely on the URI.
+
+                    // However, if you absolutely need a file path for some legacy reason (and have permissions),
+                    // you can still try to get it, but it's not guaranteed.
+                    // The `contentUri.toString()` is generally what you should pass around for loading images.
+                    // If you need the actual file path for other operations, you might need to handle it carefully.
+
+                    // If your app strictly needs file paths and not content URIs for other operations,
+                    // this part will need careful consideration, especially for Android Q+.
+                    // For image loading, the Content URI is preferred.
+                    val path = cursor.getString(dataColumn)
+                    if (path != null) { // Keep extension check if necessary
+                        imagePaths.add(path) // Or add contentUri.toString() if you adapt consumers
+                    } else {
+                        // For Android Q and above, DATA column might be null or less reliable for non-owned files.
+                        // You might only have the URI.
+                        // If you only care about loading, the contentUri is what you need.
+                        // If you are listing files for other purposes that require a path, this part is tricky.
+                        // For now, let's assume we are primarily getting paths that the app itself created.
+                        Log.w(TAG, "File path was null for URI: $contentUri, consider using URI directly.")
+                        // If you decide to store URIs:
+                        // if (isSupportedFileByUri(contentUri)) {
+                        // imagePaths.add(contentUri.toString())
+                        // }
                     }
                 }
             }
-            return filePaths
-        }
-
-    /*
-     * Check supported file extensions
-     *
-     * @returns boolean
-     */
-    private fun isSupportedFile(filePath: String): Boolean {
-        val ext = filePath.substring(filePath.lastIndexOf(".") + 1,
-                filePath.length)
-        return AppConstant.FILE_EXTN.contains(ext.lowercase(Locale.getDefault()))
-    }// Older device
-
-    /*
-       * getting screen width
-       */
-    val screenWidth: Int
-        get() {
-            val columnWidth: Int
-            val wm = _context
-                    .getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val display = wm.defaultDisplay
-            val point = Point()
-            try {
-                display.getSize(point)
-            } catch (ignore: NoSuchMethodError) { // Older device
-                point.x = display.width
-                point.y = display.height
-            }
-            columnWidth = point.x
-            return columnWidth
+            return imagePaths
         }
 
     companion object {
@@ -196,6 +214,7 @@ class Utils(
 
         @JvmStatic
         fun removeImageFromGallery(filePath: String, context: Context) {
+            // TODO: MediaStore.Images.Media.DATA is deprecated, use URI or ID instead
             context.contentResolver.delete(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     MediaStore.Images.Media.DATA
                             + "='"
