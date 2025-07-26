@@ -19,6 +19,7 @@ import com.itextpdf.layout.element.Image
 import com.todobom.opennotescanner.R
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
@@ -27,8 +28,8 @@ object PdfHelper {
     private const val TAG = "OpenNoteScanner-Pdf"
 
     @JvmStatic
-    fun mergeImagesToPdf(applicationContext: Context, imagePaths: ArrayList<String>): Uri? {
-        if (imagePaths.isEmpty()) {
+    fun mergeImagesToPdf(applicationContext: Context, imageUris: ArrayList<Uri>): Uri? {
+        if (imageUris.isEmpty()) {
             Toast.makeText(
                 applicationContext,
                 applicationContext.getString(R.string.no_files_selected),
@@ -92,14 +93,17 @@ object PdfHelper {
             val document = Document(pdfDocument)
 
             // sorts by date
-            imagePaths.sort()
+            imageUris.sort()
 
-            for (imagePath in imagePaths) {
+            for (imageUri in imageUris) {
                 try {
-                    val imageData = ImageDataFactory.create(imagePath)
-                    val image = Image(imageData)
-                    pdfDocument.addNewPage(PageSize(image.imageWidth, image.imageHeight))
-                    document.add(image)
+                    applicationContext.contentResolver.openInputStream(imageUri)?.use { inputStream ->
+                        val imageData = ImageDataFactory.create(inputStream.readBytes())
+                        val image = Image(imageData)
+
+                        pdfDocument.addNewPage(PageSize(image.imageWidth, image.imageHeight))
+                        document.add(image)
+                    } ?: throw IOException("Failed to open stream for URI: $imageUri")
                 } catch (e: Exception) { // Catch more general exceptions during image processing
                     e.printStackTrace()
                     // TODO: show error

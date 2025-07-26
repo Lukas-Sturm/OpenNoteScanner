@@ -28,9 +28,9 @@ class Utils(
 ) {
     private val mSharedPref: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(_context)
 
-    val filePaths: ArrayList<String>
+    val fileUris: ArrayList<Uri>
         get() {
-            val imagePaths = ArrayList<String>()
+            val imageUris = ArrayList<Uri>()
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
             } else {
@@ -70,44 +70,16 @@ class Utils(
                 sortOrder
             )?.use { cursor ->
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA) // For path
-
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idColumn)
                     val contentUri: Uri = ContentUris.withAppendedId(
                         MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                         id
                     )
-
-                    // For SDK < Q, MediaStore.Images.Media.DATA is usually reliable.
-                    // For SDK >= Q, it's better to rely on the URI.
-
-                    // However, if you absolutely need a file path for some legacy reason (and have permissions),
-                    // you can still try to get it, but it's not guaranteed.
-                    // The `contentUri.toString()` is generally what you should pass around for loading images.
-                    // If you need the actual file path for other operations, you might need to handle it carefully.
-
-                    // If your app strictly needs file paths and not content URIs for other operations,
-                    // this part will need careful consideration, especially for Android Q+.
-                    // For image loading, the Content URI is preferred.
-                    val path = cursor.getString(dataColumn)
-                    if (path != null) { // Keep extension check if necessary
-                        imagePaths.add(path) // Or add contentUri.toString() if you adapt consumers
-                    } else {
-                        // For Android Q and above, DATA column might be null or less reliable for non-owned files.
-                        // You might only have the URI.
-                        // If you only care about loading, the contentUri is what you need.
-                        // If you are listing files for other purposes that require a path, this part is tricky.
-                        // For now, let's assume we are primarily getting paths that the app itself created.
-                        Log.w(TAG, "File path was null for URI: $contentUri, consider using URI directly.")
-                        // If you decide to store URIs:
-                        // if (isSupportedFileByUri(contentUri)) {
-                        // imagePaths.add(contentUri.toString())
-                        // }
-                    }
+                    imageUris.add(contentUri)
                 }
             }
-            return imagePaths
+            return imageUris
         }
 
     companion object {
@@ -213,13 +185,18 @@ class Utils(
         }
 
         @JvmStatic
-        fun removeImageFromGallery(filePath: String, context: Context) {
-            // TODO: MediaStore.Images.Media.DATA is deprecated, use URI or ID instead
-            context.contentResolver.delete(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    MediaStore.Images.Media.DATA
-                            + "='"
-                            + filePath
-                            + "'", null)
+        fun removeImageFromGallery(fileUri: Uri, context: Context) {
+            try {
+                val rowsDeleted = context.contentResolver.delete(fileUri, null, null)
+                if (rowsDeleted == 0) {
+                    Log.w(TAG, "Nothing deleted for: $fileUri")
+                }
+            } catch (e: SecurityException) {
+                // we should have permissions
+                e.printStackTrace()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
         @JvmStatic
